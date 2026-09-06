@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - Dynamic GPS Test</title>
+    <title>Alice in Wonderland - Compass Debug AR</title>
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/three.js/build/ar-threex-location-only.js"></script>
     <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
@@ -27,41 +27,47 @@
 </head>
 <body style="margin: 0; overflow: hidden;">
 
-    <div id="ui">Acquiring GPS & spawning Tea Party nearby...</div>
+    <div id="ui">Waiting for GPS lock...</div>
 
     <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;">
         <a-camera gps-new-camera="gpsMinDistance: 1"></a-camera>
-        <!-- The entity will be dynamically placed via script right next to you -->
-        <a-entity id="tea-party" scale="1.5 1.5 1.5"></a-entity>
+        
+        <!-- Added look-at component so the tea party always rotates toward you -->
+        <a-entity id="tea-party" gps-new-entity-place="latitude: 0; longitude: 0;" scale="2 2 2" animation-mixer>
+            <a-cylinder radius="1.0" height="0.15" color="#8b4513" position="0 0 0"></a-cylinder>
+            <a-cylinder radius="0.15" height="0.3" color="#ffffff" position="-0.4 0.2 -0.4"></a-cylinder>
+            <a-cylinder radius="0.15" height="0.3" color="#ffffff" position="0.4 0.2 0.4"></a-cylinder>
+            <a-cone radius-bottom="0.4" height="0.5" color="#ff0066" position="0 0.3 0"></a-cone>
+        </a-entity>
     </a-scene>
 
     <script>
         window.addEventListener('load', () => {
             const cameraEl = document.querySelector('[gps-new-camera]');
+            const entity = document.getElementById('tea-party');
             
             cameraEl.addEventListener('gps-camera-update-position', e => {
                 const currentLat = e.detail.position.latitude;
                 const currentLon = e.detail.position.longitude;
                 
-                document.getElementById('ui').innerHTML = 
-                    `GPS Locked!<br>Spin around and look for the table.`;
+                // Spawn 15 meters directly East (+ longitude) so it's a clear distance away
+                const targetLat = currentLat;
+                const targetLon = currentLon + 0.00015; 
 
-                // Calculate a point roughly 10 meters north of your current position
-                // 0.0001 degrees latitude is roughly 11 meters
-                const targetLat = currentLat + 0.0001; 
-                const targetLon = currentLon;
-
-                const entity = document.getElementById('tea-party');
                 entity.setAttribute('gps-new-entity-place', `latitude: ${targetLat}; longitude: ${targetLon};`);
                 
-                // Build the Tea Party visual components dynamically
-                entity.innerHTML = `
-                    <a-cylinder radius="1.0" height="0.15" color="#8b4513" position="0 0 0"></a-cylinder>
-                    <a-cylinder radius="0.15" height="0.3" color="#ffffff" position="-0.4 0.2 -0.4"></a-cylinder>
-                    <a-cylinder radius="0.15" height="0.3" color="#ffffff" position="0.4 0.2 0.4"></a-cylinder>
-                    <a-cone radius-bottom="0.4" height="0.5" color="#ff0066" position="0 0.3 0"></a-cone>
-                `;
-            }, { once: true }); // Only run once when the first real GPS fix comes in
+                document.getElementById('ui').innerHTML = `GPS Locked!<br>Target set 15m away. Scan around slowly.`;
+            }, { once: true });
+
+            // Log distance changes to check tracking
+            entity.addEventListener('loaded', () => {
+                setInterval(() => {
+                    const dist = entity.getAttribute('distance');
+                    if(dist) {
+                        document.getElementById('ui').innerHTML = `GPS Locked!<br>Tea Party is ${Math.round(dist)}m away.`;
+                    }
+                }, 1000);
+            });
         });
     </script>
 </body>
