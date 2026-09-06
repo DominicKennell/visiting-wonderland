@@ -1,115 +1,502 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vanilla WebXR Portal</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: black; font-family: sans-serif; }
-        #ar-button {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 12px 24px;
-            font-size: 18px;
-            background: #4a0e4e;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            z-index: 999;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wonderland AR — Experience</title>
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #0d0d0d;
+    font-family: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  #video {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    z-index: 0;
+  }
+
+  a-scene {
+    position: fixed; inset: 0;
+    z-index: 1;
+  }
+
+  #vignette {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(10,20,15,0.55) 100%);
+  }
+
+  #back {
+    position: fixed; top: 16px; left: 16px; z-index: 10;
+    background: rgba(20,16,14,0.65); color: #F3EAD3; font-size: 13px;
+    padding: 8px 14px; border-radius: 16px; text-decoration: none;
+    backdrop-filter: blur(4px);
+  }
+
+  #hint {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,16,14,0.7); color: #F3EAD3; font-size: 14px;
+    padding: 10px 20px; border-radius: 20px; z-index: 10; text-align: center;
+    max-width: 82%; backdrop-filter: blur(4px);
+  }
+
+  #gps-status, #direction-status {
+    position: fixed; right: 16px; z-index: 10;
+    background: rgba(20,16,14,0.72); color: #F3EAD3; font-size: 12px;
+    padding: 8px 12px; border-radius: 16px; backdrop-filter: blur(4px);
+    max-width: 220px; text-align: center;
+  }
+  #gps-status { top: 16px; }
+  #direction-status { top: 58px; }
+
+  #reset-origin {
+    position: fixed; top: 100px; right: 16px; z-index: 10;
+    background: rgba(122,35,49,0.85); color: #F3EAD3; font-size: 11px;
+    padding: 6px 10px; border-radius: 14px; border: 0;
+  }
+
+  #wonderland-objective {
+    position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%);
+    z-index: 10; pointer-events: none;
+    background: rgba(20,16,14,.76); color: #F3EAD3;
+    padding: 10px 16px; border-radius: 18px; text-align: center;
+    font-size: 13px; line-height: 1.35; max-width: 78%;
+    backdrop-filter: blur(5px); display: none;
+  }
+  #wonderland-distance { opacity: .72; font-size: 11px; margin-top: 3px; }
+
+  #permission-screen {
+    position: fixed; inset: 0; z-index: 20;
+    background: #1F4C3F; color: #F3EAD3;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 30px;
+  }
+  #permission-screen h1 { font-family: Georgia, serif; font-size: 26px; margin-bottom: 12px; }
+  #permission-screen p { max-width: 320px; opacity: 0.85; margin-bottom: 24px; font-size: 15px; }
+  #permission-screen button {
+    background: #C6952C; color: #1A1614; border: none; font-weight: 600;
+    padding: 14px 28px; border-radius: 4px; font-size: 16px; cursor: pointer;
+  }
+  #permission-screen.hidden { display: none; }
+</style>
 </head>
 <body>
 
-    <button id="ar-button">Start Wonderland AR</button>
+<a id="back" href="index.html">← Back</a>
 
-    <script>
-        let xrSession = null;
-        let xrViewerSpace = null;
-        let xrHitTestSource = null;
-        let gl = null;
-        let canvas = null;
+<div id="permission-screen">
+  <h1>Wonderland is behind the lens</h1>
+  <p>This needs your camera, your compass, and your location — nothing is
+     recorded or sent anywhere. They're what let Wonderland sit at real
+     places around you.</p>
+  <button id="enable-btn">Enter Wonderland</button>
+</div>
 
-        const button = document.getElementById('ar-button');
+<video id="video" autoplay playsinline muted></video>
 
-        // Check if WebXR with AR is supported by the mobile browser
-        if (navigator.xr) {
-            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-                if (supported) {
-                    button.addEventListener('click', toggleAR);
-                } else {
-                    button.textContent = 'AR Not Supported on this Device';
-                    button.disabled = true;
-                }
-            });
-        } else {
-            button.textContent = 'WebXR Not Available';
-            button.disabled = true;
+<a-scene embedded vr-mode-ui="enabled: false" renderer="alpha: true" fog="type: exponential; density: 0.045; color: #0d2620">
+  <a-assets></a-assets>
+
+  <a-entity id="world" rotation="0 0 0">
+
+    <!-- The White Rabbit: close by, the first thing you find -->
+    <a-entity id="loc-rabbit" position="0 0 0">
+      <a-sphere radius="0.5" color="#F3EAD3" position="0 0.5 0"></a-sphere>
+      <a-sphere radius="0.28" color="#F3EAD3" position="0 1.15 0"></a-sphere>
+      <a-cone radius-bottom="0.06" radius-top="0.01" height="0.4" color="#f2c9d6" position="-0.13 1.5 0" rotation="0 0 -12"></a-cone>
+      <a-cone radius-bottom="0.06" radius-top="0.01" height="0.4" color="#f2c9d6" position="0.13 1.5 0" rotation="0 0 12"></a-cone>
+      <a-sphere radius="0.08" color="#1A1614" position="0 1.55 0"></a-sphere>
+      <a-entity position="0.55 0.55 0.3" animation="property: rotation; to: 0 360 0; loop: true; dur: 6000; easing: linear">
+        <a-torus radius="0.16" radius-tubular="0.02" color="#C6952C"></a-torus>
+        <a-circle radius="0.13" color="#F3EAD3" rotation="0 90 0"></a-circle>
+      </a-entity>
+      <a-text value="THE WHITE RABBIT" align="center" color="#F3EAD3" position="0 2.1 0" width="4"></a-text>
+    </a-entity>
+
+    <!-- The Forest: a small cluster of stylised trees -->
+    <a-entity id="loc-forest" position="0 0 0">
+      <a-entity position="-1.2 0 0.4">
+        <a-cylinder radius="0.15" height="1.6" color="#3a2a1e" position="0 0.8 0"></a-cylinder>
+        <a-cone radius-bottom="1" radius-top="0.05" height="1.8" color="#2d5a4a" position="0 2 0"></a-cone>
+      </a-entity>
+      <a-entity position="0.8 0 -0.6" scale="1.3 1.3 1.3">
+        <a-cylinder radius="0.15" height="1.6" color="#3a2a1e" position="0 0.8 0"></a-cylinder>
+        <a-cone radius-bottom="1" radius-top="0.05" height="1.8" color="#4a3b6b" position="0 2 0"></a-cone>
+      </a-entity>
+      <a-entity position="1.6 0 0.8" scale="0.8 0.8 0.8">
+        <a-cylinder radius="0.15" height="1.6" color="#3a2a1e" position="0 0.8 0"></a-cylinder>
+        <a-cone radius-bottom="1" radius-top="0.05" height="1.8" color="#2d5a4a" position="0 2 0"></a-cone>
+      </a-entity>
+      <a-entity position="0.2 1.4 0.2" animation="property: opacity; to: 0.2; dir: alternate; loop: true; dur: 1400">
+        <a-sphere radius="0.03" color="#C6952C"></a-sphere>
+      </a-entity>
+      <a-entity position="-0.5 1.8 0.6" animation="property: opacity; to: 0.2; dir: alternate; loop: true; dur: 1900">
+        <a-sphere radius="0.025" color="#C6952C"></a-sphere>
+      </a-entity>
+      <a-text value="THE FOREST" align="center" color="#F3EAD3" position="0 3 0" width="4"></a-text>
+    </a-entity>
+
+    <!-- The Tea Party -->
+    <a-entity id="loc-tea-party" position="0 0 0">
+      <a-cylinder radius="0.9" height="0.06" color="#e6dcc0" position="0 0.9 0"></a-cylinder>
+      <a-cylinder radius="0.06" height="0.9" color="#7A2331" position="0 0.45 0"></a-cylinder>
+      <a-entity position="-0.25 1 0.15">
+        <a-sphere radius="0.18" color="#7A2331" scale="1 0.8 1"></a-sphere>
+        <a-torus radius="0.09" radius-tubular="0.015" color="#7A2331" position="0.2 0 0" rotation="0 90 0"></a-torus>
+      </a-entity>
+      <a-cylinder radius="0.1" height="0.12" color="#F3EAD3" position="0.25 0.98 -0.1"></a-cylinder>
+      <a-cylinder radius="0.1" height="0.12" color="#F3EAD3" position="0.45 0.98 0.2"></a-cylinder>
+      <a-text value="THE TEA PARTY" align="center" color="#F3EAD3" position="0 1.9 0" width="4"></a-text>
+    </a-entity>
+
+    <!-- The Castle -->
+    <a-entity id="loc-castle" position="0 0 0">
+      <a-box width="2.2" height="2.6" depth="1.6" color="#2d5a4a" position="0 1.3 0"></a-box>
+      <a-cylinder radius="0.35" height="3" color="#1F4C3F" position="-1.2 1.5 0"></a-cylinder>
+      <a-cone radius-bottom="0.5" radius-top="0.02" height="0.7" color="#7A2331" position="-1.2 3.35 0"></a-cone>
+      <a-cylinder radius="0.35" height="3" color="#1F4C3F" position="1.2 1.5 0"></a-cylinder>
+      <a-cone radius-bottom="0.5" radius-top="0.02" height="0.7" color="#7A2331" position="1.2 3.35 0"></a-cone>
+      <a-box width="0.7" height="1.2" depth="0.1" color="#1A1614" position="0 0.6 0.85"></a-box>
+      <a-cylinder radius="0.02" height="1.2" color="#1A1614" position="0 3.4 0"></a-cylinder>
+      <a-plane width="0.4" height="0.28" color="#7A2331" position="0.22 3.85 0" rotation="0 0 0" material="side: double"></a-plane>
+      <a-text value="THE CASTLE" align="center" color="#F3EAD3" position="0 4.3 0" width="4"></a-text>
+    </a-entity>
+
+  </a-entity>
+
+  <a-light type="directional" position="1 3 1" intensity="0.9"></a-light>
+  <a-light type="ambient" intensity="0.6"></a-light>
+
+  <a-entity camera look-controls="enabled: false" wasd-controls="enabled: false" position="0 1.6 0"></a-entity>
+</a-scene>
+
+<div id="vignette"></div>
+
+<div id="hint" style="display:none;">Turn slowly — Wonderland is placed all around you</div>
+<div id="gps-status" style="display:none;">GPS starting…</div>
+<div id="direction-status" style="display:none;">Starting compass…</div>
+<button id="reset-origin" style="display:none;">Re-anchor Wonderland here</button>
+
+<div id="wonderland-objective">
+  <div id="wonderland-message">Finding Wonderland…</div>
+  <div id="wonderland-distance"></div>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const permScreen = document.getElementById('permission-screen');
+  const hint = document.getElementById('hint');
+  const enableBtn = document.getElementById('enable-btn');
+  const gpsStatus = document.getElementById('gps-status');
+  const directionStatus = document.getElementById('direction-status');
+  const resetBtn = document.getElementById('reset-origin');
+  const objective = document.getElementById('wonderland-objective');
+  const objectiveMessage = document.getElementById('wonderland-message');
+  const objectiveDistance = document.getElementById('wonderland-distance');
+  const worldEl = document.getElementById('world');
+
+  /*
+   * ---- CONFIGURE YOUR WONDERLAND HERE ----
+   * Every location is a bearing (0 = north, 90 = east, 180 = south,
+   * 270 = west) and a distance in real metres from wherever this
+   * experience is first opened — the "origin". Change these to lay
+   * Wonderland out however you like around your venue.
+   *
+   * "displayDistance" is separate: it compresses real metres into a
+   * comfortable in-scene distance so far-off locations aren't just
+   * invisible specks. Tune the divisor if things feel too close/far.
+   */
+  const LOCATIONS = [
+    { id: 'rabbit',     name: 'The White Rabbit', bearing: 20,  distance: 15,  radius: 8  },
+    { id: 'forest',     name: 'The Forest',       bearing: 300, distance: 45,  radius: 15 },
+    { id: 'tea-party',  name: 'The Tea Party',    bearing: 100, distance: 70,  radius: 15 },
+    { id: 'castle',     name: 'The Castle',       bearing: 190, distance: 100, radius: 20 }
+  ];
+  const DISTANCE_DIVISOR = 6;      // real metres -> in-scene metres
+  const MIN_SCENE_DISTANCE = 2;
+  const MAX_SCENE_DISTANCE = 22;
+
+  let origin = null;               // { latitude, longitude } — set once, persisted
+  let lastPosition = null;
+  let heading = null, targetHeading = null;
+  let lastShownHeading = null;
+  let lastObjectiveUpdate = 0;
+  let filteredSin = 0, filteredCos = 1;
+  const COMPASS_FILTER_ALPHA = 0.12; // lower = smoother but laggier
+  let sensorStarted = false, gpsStarted = false;
+  let renderFrame = null;
+  let placed = false;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem('wonderlandOrigin') || 'null');
+    if (saved && typeof saved.latitude === 'number') origin = saved;
+  } catch (e) {}
+
+  function toRad(d) { return d * Math.PI / 180; }
+  function toDeg(r) { return r * 180 / Math.PI; }
+  function wrap180(v) { return ((v + 180) % 360 + 360) % 360 - 180; }
+
+  function distanceInMetres(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function bearingBetween(lat1, lon1, lat2, lon2) {
+    const p1 = toRad(lat1), p2 = toRad(lat2), dl = toRad(lon2 - lon1);
+    return (toDeg(Math.atan2(
+      Math.sin(dl) * Math.cos(p2),
+      Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl)
+    )) + 360) % 360;
+  }
+
+  // Direct geodesic: given a start point, a bearing, and a distance,
+  // find the resulting lat/lon. This is how each location's real
+  // coordinates get computed from the origin, once.
+  function destinationPoint(lat, lon, bearingDeg, distanceM) {
+    const R = 6371000;
+    const delta = distanceM / R;
+    const theta = toRad(bearingDeg);
+    const phi1 = toRad(lat), lambda1 = toRad(lon);
+    const phi2 = Math.asin(
+      Math.sin(phi1) * Math.cos(delta) + Math.cos(phi1) * Math.sin(delta) * Math.cos(theta)
+    );
+    const lambda2 = lambda1 + Math.atan2(
+      Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
+      Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2)
+    );
+    return { latitude: toDeg(phi2), longitude: toDeg(lambda2) };
+  }
+
+  // Computes each location's fixed real-world lat/lon once, from the
+  // origin. This only runs once — it's establishing where things
+  // "really are", not where they appear on screen.
+  function computeTargets() {
+    if (!origin || placed) return;
+    placed = true;
+    LOCATIONS.forEach(loc => {
+      loc.target = destinationPoint(origin.latitude, origin.longitude, loc.bearing, loc.distance);
+      loc.sceneX = 0; loc.sceneZ = -MAX_SCENE_DISTANCE; // offscreen-ish until first live fix
+    });
+  }
+
+  // Recomputes where each location sits in the 3D scene based on
+  // where you are RIGHT NOW, not where you started. This is what
+  // makes things visibly get closer (and, through ordinary
+  // perspective, bigger) as you actually walk toward them — no
+  // manual scaling needed, it's just real distance shrinking.
+  function repositionEntities() {
+    if (!placed || !lastPosition) return;
+    LOCATIONS.forEach(loc => {
+      const realDistance = distanceInMetres(
+        lastPosition.coords.latitude, lastPosition.coords.longitude,
+        loc.target.latitude, loc.target.longitude
+      );
+      const realBearing = bearingBetween(
+        lastPosition.coords.latitude, lastPosition.coords.longitude,
+        loc.target.latitude, loc.target.longitude
+      );
+      const sceneDistance = Math.max(MIN_SCENE_DISTANCE,
+        Math.min(MAX_SCENE_DISTANCE, realDistance / DISTANCE_DIVISOR));
+      const rad = toRad(realBearing);
+      loc.sceneX = sceneDistance * Math.sin(rad);
+      loc.sceneZ = -sceneDistance * Math.cos(rad);
+      loc.realDistance = realDistance;
+    });
+  }
+
+  function animationLoop() {
+    if (targetHeading !== null) {
+      heading = heading === null ? targetHeading
+        : (heading + wrap180(targetHeading - heading) * 0.15 + 360) % 360;
+
+      // Rotate the whole world opposite to the way you've turned, so
+      // whatever's really to your east appears when you face east.
+      // If left/right ever feels swapped on your phone, flip this sign.
+      //
+      // Writing directly to object3D.rotation, rather than calling
+      // setAttribute('rotation', ...), skips A-Frame's string-parsing
+      // and component-update cycle on every single frame — that
+      // repeated overhead was the main cause of the judder.
+      worldEl.object3D.rotation.y = -heading * Math.PI / 180;
+
+      const rounded = Math.round(heading);
+      if (rounded !== lastShownHeading) {
+        lastShownHeading = rounded;
+        directionStatus.style.display = 'block';
+        directionStatus.textContent = `Compass ${rounded}°`;
+      }
+    }
+
+    // Smoothly interpolate each entity toward its latest computed
+    // position every frame, rather than snapping it there the moment
+    // a new (noisy) GPS fix arrives — this is what keeps walking
+    // toward something feeling like a smooth approach rather than a
+    // series of little jumps.
+    if (placed) {
+      LOCATIONS.forEach(loc => {
+        const el = document.getElementById('loc-' + loc.id);
+        if (!el) return;
+        loc.currentX = loc.currentX === undefined ? loc.sceneX
+          : loc.currentX + (loc.sceneX - loc.currentX) * 0.06;
+        loc.currentZ = loc.currentZ === undefined ? loc.sceneZ
+          : loc.currentZ + (loc.sceneZ - loc.currentZ) * 0.06;
+        // Same reasoning as the world rotation above: write straight
+        // to object3D.position instead of setAttribute, since this
+        // runs on every one of these entities, every frame.
+        el.object3D.position.set(loc.currentX, 0, loc.currentZ);
+      });
+
+      const now = performance.now();
+      if (now - lastObjectiveUpdate > 250) {
+        lastObjectiveUpdate = now;
+        updateObjective();
+      }
+    }
+
+    renderFrame = requestAnimationFrame(animationLoop);
+  }
+
+  function updateObjective() {
+    if (!lastPosition || !placed) return;
+
+    const withDistance = [...LOCATIONS].sort((a, b) => a.realDistance - b.realDistance);
+    const nearest = withDistance[0];
+    const bearingToNearest = bearingBetween(
+      lastPosition.coords.latitude, lastPosition.coords.longitude,
+      nearest.target.latitude, nearest.target.longitude
+    );
+    const relative = heading === null ? null : wrap180(bearingToNearest - heading);
+
+    objective.style.display = 'block';
+
+    if (nearest.realDistance <= nearest.radius) {
+      objectiveMessage.textContent = `You've found ${nearest.name}`;
+      objectiveDistance.textContent = 'Look around — it should be right here';
+    } else {
+      objectiveMessage.textContent = `${nearest.name} is nearby`;
+      objectiveDistance.textContent = relative === null
+        ? `${Math.round(nearest.realDistance)}m away`
+        : `${Math.round(nearest.realDistance)}m away • turn ${relative > 0 ? 'right' : 'left'} to face it`;
+    }
+  }
+
+  function orientationHandler(event) {
+    let h = null;
+    if (typeof event.webkitCompassHeading === 'number' && Number.isFinite(event.webkitCompassHeading)) {
+      h = event.webkitCompassHeading;
+    } else if (typeof event.alpha === 'number' && Number.isFinite(event.alpha)) {
+      h = 360 - event.alpha;
+    }
+    if (h === null) return;
+
+    // Low-pass filter in sin/cos space, not on the raw degree value —
+    // filtering degrees directly breaks at the 0/360 wraparound point.
+    // This is what actually removes the twitchiness of the raw sensor,
+    // rather than just smoothing the visual rotation afterward.
+    const rad = toRad(h);
+    filteredSin += (Math.sin(rad) - filteredSin) * COMPASS_FILTER_ALPHA;
+    filteredCos += (Math.cos(rad) - filteredCos) * COMPASS_FILTER_ALPHA;
+    targetHeading = ((toDeg(Math.atan2(filteredSin, filteredCos)) % 360) + 360) % 360;
+  }
+
+  async function startCompass() {
+    try {
+      if (typeof DeviceOrientationEvent === 'undefined') {
+        directionStatus.textContent = 'Compass unavailable on this device';
+        directionStatus.style.display = 'block';
+        return;
+      }
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const permission = await DeviceOrientationEvent.requestPermission();
+        if (permission !== 'granted') {
+          directionStatus.textContent = 'Compass permission not granted';
+          directionStatus.style.display = 'block';
+          return;
         }
+      }
+      if (!sensorStarted) {
+        window.addEventListener('deviceorientation', orientationHandler, true);
+        window.addEventListener('deviceorientationabsolute', orientationHandler, true);
+        sensorStarted = true;
+      }
+      if (!renderFrame) renderFrame = requestAnimationFrame(animationLoop);
+    } catch (e) {
+      console.error(e);
+      directionStatus.textContent = 'Compass unavailable';
+      directionStatus.style.display = 'block';
+    }
+  }
 
-        async function toggleAR() {
-            if (xrSession) {
-                await xrSession.end();
-                return;
-            }
+  function updateGPS(position) {
+    lastPosition = position;
+    const accuracy = Math.round(position.coords.accuracy || 0);
 
-            try {
-                // Request an immersive-ar session with hit-test capability
-                xrSession = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['hit-test', 'local-floor']
-                });
+    if (!origin) {
+      origin = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+      localStorage.setItem('wonderlandOrigin', JSON.stringify(origin));
+    }
+    placeWorld();
 
-                button.style.display = 'none';
-                
-                // Create native WebGL context bound to the XR session
-                canvas = document.createElement('canvas');
-                document.body.appendChild(canvas);
-                gl = canvas.getContext('webgl', { xrCompatible: true });
+    gpsStatus.style.display = 'block';
+    gpsStatus.textContent = `GPS ±${accuracy}m`;
+    resetBtn.style.display = 'block';
+    updateObjective();
+  }
 
-                await xrSession.updateRenderState({
-                    baseLayer: new XRWebGLLayer(xrSession, gl)
-                });
+  function gpsError(error) {
+    gpsStatus.style.display = 'block';
+    gpsStatus.textContent =
+      error.code === 1 ? 'Location permission denied' :
+      error.code === 2 ? 'GPS unavailable' :
+      'GPS timeout — retrying…';
+  }
 
-                xrViewerSpace = await xrSession.requestReferenceSpace('viewer');
-                let localSpace = await xrSession.requestReferenceSpace('local-floor');
+  function startGPS() {
+    if (!navigator.geolocation || gpsStarted) return;
+    gpsStarted = true;
+    gpsStatus.style.display = 'block';
+    gpsStatus.textContent = 'Finding GPS…';
+    navigator.geolocation.watchPosition(updateGPS, gpsError, {
+      enableHighAccuracy: true, maximumAge: 1000, timeout: 15000
+    });
+  }
 
-                // Set up hit source for placing objects on real-world surfaces
-                xrHitTestSource = await xrSession.requestHitTestSource({ space: xrViewerSpace });
+  resetBtn.addEventListener('click', () => {
+    if (!confirm('Forget this anchor point and re-anchor Wonderland to wherever you are standing right now?')) return;
+    localStorage.removeItem('wonderlandOrigin');
+    location.reload();
+  });
 
-                xrSession.addEventListener('end', () => {
-                    xrSession = null;
-                    button.style.display = 'block';
-                    if (canvas) canvas.remove();
-                });
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }, audio: false
+      });
+      video.srcObject = stream;
+      permScreen.classList.add('hidden');
 
-                xrSession.requestAnimationFrame(onXRFrame);
+      hint.style.display = 'block';
+      setTimeout(() => { hint.style.display = 'none'; }, 6000);
 
-            } catch (err) {
-                console.error('Failed to start AR session:', err);
-                button.style.display = 'block';
-            }
-        }
+      startGPS();
+      await startCompass();
+    } catch (err) {
+      console.error(err);
+      permScreen.querySelector('h1').textContent = 'Camera access needed';
+      permScreen.querySelector('p').textContent =
+        'Please allow camera access for this site, then try again.';
+      enableBtn.textContent = 'Try again';
+    }
+  }
 
-        function onXRFrame(time, frame) {
-            let session = frame.session;
-            session.requestAnimationFrame(onXRFrame);
+  enableBtn.addEventListener('click', startCamera);
+</script>
 
-            let pose = frame.getViewerPose(xrViewerSpace);
-            if (pose) {
-                let glLayer = session.renderState.baseLayer;
-                
-                gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
-                gl.clearColor(0, 0, 0, 0); // Transparent background to show camera feed
-                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-                // Native WebXR render loop goes here.
-                // Without Three.js, you handle raw WebGL draw calls, shader programs, 
-                // and matrices directly for your Wonderland portal geometry.
-            }
-        }
-    </script>
 </body>
 </html>
