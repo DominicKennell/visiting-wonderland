@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - AR.js Portal</title>
-    <!-- Include A-Frame -->
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <!-- Include AR.js for A-Frame -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.1.1/aframe-ar.js"></script>
+    <title>Alice in Wonderland - AR.js Stable Portal</title>
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <style>
         body {
             margin: 0;
@@ -33,30 +31,22 @@
 </head>
 <body style="margin: 0; overflow: hidden;">
     
-    <div id="instructions">Point camera at a Hiro marker to reveal the Wonderland Portal!</div>
+    <div id="instructions">Point camera at the Hiro marker!</div>
 
     <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;">
         
-        <!-- Define the marker (using the default 'hiro' marker) -->
         <a-marker preset="hiro">
-            
-            <!-- Portal Frame Ring -->
             <a-torus radius="0.8" radius-tubular="0.05" color="#9900cc" position="0 0.5 0" rotation="90 0 0"></a-torus>
             
-            <!-- Portal Gateway (Teal Center) -->
             <a-circle radius="0.75" color="#00ffff" position="0 0.5 0" rotation="-90 0 0" material="side: double"></a-circle>
 
-            <!-- Mad Tea Party Table Inside Portal -->
             <a-cylinder radius="0.6" height="0.1" color="#996633" position="0 0.2 -1"></a-cylinder>
             
-            <!-- Teacups -->
             <a-cylinder radius="0.1" height="0.2" color="#ffffff" position="-0.2 0.35 -1"></a-cylinder>
             <a-cylinder radius="0.1" height="0.2" color="#ffffff" position="0.2 0.35 -1"></a-cylinder>
 
-            <!-- Giant Mushrooms -->
             <a-cone radius-bottom="0.4" height="0.3" color="#ff0066" position="-0.8 0.15 -1.2"></a-cone>
             <a-cylinder radius="0.1" height="0.3" color="#eeeeee" position="-0.8 0 -1.2"></a-cylinder>
-
         </a-marker>
 
         <a-entity camera></a-entity>
