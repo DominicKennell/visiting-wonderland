@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Wonderland AR — Experience</title>
+<title>Wonderland AR</title>
 <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -140,6 +140,24 @@
       <a-text value="THE FOREST" align="center" color="#F3EAD3" position="0 3 0" width="4"></a-text>
     </a-entity>
 
+    <!-- Ambient trees lining the path — pure scenery, no arrival logic -->
+    <a-entity id="loc-forest-a" position="0 0 0">
+      <a-cylinder radius="0.13" height="1.4" color="#3a2a1e" position="-0.3 0.7 0.5"></a-cylinder>
+      <a-cone radius-bottom="0.85" radius-top="0.04" height="1.6" color="#2d5a4a" position="-0.3 1.75 0.5"></a-cone>
+    </a-entity>
+    <a-entity id="loc-forest-b" position="0 0 0" scale="1.15 1.15 1.15">
+      <a-cylinder radius="0.14" height="1.5" color="#3a2a1e" position="0.5 0.75 -0.4"></a-cylinder>
+      <a-cone radius-bottom="0.9" radius-top="0.04" height="1.7" color="#4a3b6b" position="0.5 1.85 -0.4"></a-cone>
+    </a-entity>
+    <a-entity id="loc-forest-c" position="0 0 0" scale="0.9 0.9 0.9">
+      <a-cylinder radius="0.13" height="1.4" color="#3a2a1e" position="-0.4 0.7 -0.3"></a-cylinder>
+      <a-cone radius-bottom="0.85" radius-top="0.04" height="1.6" color="#2d5a4a" position="-0.4 1.75 -0.3"></a-cone>
+    </a-entity>
+    <a-entity id="loc-forest-d" position="0 0 0" scale="1.05 1.05 1.05">
+      <a-cylinder radius="0.14" height="1.5" color="#3a2a1e" position="0.35 0.75 0.35"></a-cylinder>
+      <a-cone radius-bottom="0.9" radius-top="0.04" height="1.7" color="#4a3b6b" position="0.35 1.85 0.35"></a-cone>
+    </a-entity>
+
     <!-- The Tea Party -->
     <a-entity id="loc-tea-party" position="0 0 0">
       <a-cylinder radius="0.9" height="0.06" color="#e6dcc0" position="0 0.9 0"></a-cylinder>
@@ -203,22 +221,38 @@
    * ---- CONFIGURE YOUR WONDERLAND HERE ----
    * Every location is a bearing (0 = north, 90 = east, 180 = south,
    * 270 = west) and a distance in real metres from wherever this
-   * experience is first opened — the "origin". Change these to lay
-   * Wonderland out however you like around your venue.
+   * experience is first opened — the "origin".
    *
-   * "displayDistance" is separate: it compresses real metres into a
-   * comfortable in-scene distance so far-off locations aren't just
-   * invisible specks. Tune the divisor if things feel too close/far.
+   * These are all clustered around the same ~45° heading (roughly
+   * north-east) at increasing distances, on purpose: walking in one
+   * direction takes you past the rabbit, through the forest, out into
+   * the tea party, and eventually to the castle — a path, not a
+   * scavenger hunt where you spin in place to find things in four
+   * unrelated directions.
+   *
+   * "ambient" entries are pure scenery (the trees lining the walk to
+   * the forest) — they render and move like everything else, but they
+   * never show up in the "you've arrived" messaging.
    */
   const LOCATIONS = [
-    { id: 'rabbit',     name: 'The White Rabbit', bearing: 20,  distance: 15,  radius: 8  },
-    { id: 'forest',     name: 'The Forest',       bearing: 300, distance: 45,  radius: 15 },
-    { id: 'tea-party',  name: 'The Tea Party',    bearing: 100, distance: 70,  radius: 15 },
-    { id: 'castle',     name: 'The Castle',       bearing: 190, distance: 100, radius: 20 }
+    { id: 'rabbit',     name: 'The White Rabbit', bearing: 75,  distance: 12,  radius: 6,
+      arrivalMessage: "You've found the White Rabbit — he's off again!" },
+    { id: 'forest',     name: 'The Forest',       bearing: 45,  distance: 40,  radius: 15,
+      arrivalMessage: "You're deep in the forest now." },
+    { id: 'tea-party',  name: 'The Tea Party',    bearing: 48,  distance: 85,  radius: 15,
+      arrivalMessage: "You've joined the Mad Tea Party!" },
+    { id: 'castle',     name: 'The Castle',       bearing: 50,  distance: 150, radius: 20,
+      arrivalMessage: "You've reached the Queen's castle." },
+
+    { id: 'forest-a', ambient: true, bearing: 36, distance: 22 },
+    { id: 'forest-b', ambient: true, bearing: 52, distance: 33 },
+    { id: 'forest-c', ambient: true, bearing: 41, distance: 55 },
+    { id: 'forest-d', ambient: true, bearing: 49, distance: 68 }
   ];
   const DISTANCE_DIVISOR = 6;      // real metres -> in-scene metres
   const MIN_SCENE_DISTANCE = 2;
   const MAX_SCENE_DISTANCE = 22;
+  let vibrated = {};                // tracks which locations have already buzzed on arrival
 
   let origin = null;               // { latitude, longitude } — set once, persisted
   let lastPosition = null;
@@ -365,7 +399,8 @@
   function updateObjective() {
     if (!lastPosition || !placed) return;
 
-    const withDistance = [...LOCATIONS].sort((a, b) => a.realDistance - b.realDistance);
+    const withDistance = LOCATIONS.filter(loc => !loc.ambient)
+      .sort((a, b) => a.realDistance - b.realDistance);
     const nearest = withDistance[0];
     const bearingToNearest = bearingBetween(
       lastPosition.coords.latitude, lastPosition.coords.longitude,
@@ -376,8 +411,12 @@
     objective.style.display = 'block';
 
     if (nearest.realDistance <= nearest.radius) {
-      objectiveMessage.textContent = `You've found ${nearest.name}`;
+      objectiveMessage.textContent = nearest.arrivalMessage || `You've found ${nearest.name}`;
       objectiveDistance.textContent = 'Look around — it should be right here';
+      if (!vibrated[nearest.id] && navigator.vibrate) {
+        navigator.vibrate(200);
+        vibrated[nearest.id] = true;
+      }
     } else {
       objectiveMessage.textContent = `${nearest.name} is nearby`;
       objectiveDistance.textContent = relative === null
