@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - Full Portal & Walk-Around AR Experience</title>
+    <title>Alice in Wonderland - AR Fixed</title>
     <style>
         body {
             margin: 0;
@@ -48,8 +48,10 @@
             letter-spacing: 1px;
         }
         #ar-button-container {
-            position: absolute;
-            bottom: 20px;
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
             z-index: 20;
         }
     </style>
@@ -94,6 +96,7 @@
 
         function init() {
             scene = new THREE.Scene();
+            // Only set background color for desktop, keep transparent for AR camera feed
             scene.background = new THREE.Color(0x050505);
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
@@ -113,7 +116,6 @@
             directionalLight.position.set(1, 4, 2);
             scene.add(directionalLight);
 
-            // Build Worlds
             buildWonderlandEnvironment();
             createPortalStructure();
 
@@ -126,8 +128,29 @@
                             optionalFeatures: ['dom-overlay'],
                             domOverlay: { root: document.getElementById('ui-overlay') }
                         });
+                        
+                        // Style the AR Button nicely and place it in our container
+                        arButton.style.position = 'static';
+                        arButton.style.backgroundColor = '#9900cc';
+                        arButton.style.color = '#ffffff';
+                        arButton.style.border = '1px solid #00ffff';
+                        arButton.style.borderRadius = '8px';
+                        arButton.style.padding = '12px 24px';
+                        arButton.style.fontFamily = 'Courier New';
+                        arButton.style.fontSize = '16px';
+                        arButton.style.cursor = 'pointer';
+                        
                         document.getElementById('ar-button-container').appendChild(arButton);
-                        document.getElementById('instructions').innerText = "Scan your room floor and tap to drop the portal.";
+                        document.getElementById('instructions').innerText = "Tap 'START AR' and scan your room floor.";
+
+                        // Clear scene background when AR session starts so camera passthrough works
+                        renderer.xr.addEventListener('sessionstart', () => {
+                            scene.background = null;
+                        });
+                        renderer.xr.addEventListener('sessionend', () => {
+                            scene.background = new THREE.Color(0x050505);
+                        });
+
                     } else {
                         setupDesktopMode();
                     }
@@ -138,7 +161,6 @@
                 setupDesktopMode();
             }
 
-            // AR Controller and Reticle
             controller = renderer.xr.getController(0);
             controller.addEventListener('select', onARSelect);
             scene.add(controller);
@@ -158,9 +180,7 @@
         function setupDesktopMode() {
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            document.getElementById('instructions').innerText = "Desktop Mode: Click & drag to look. Click the portal center to enter Wonderland!";
-            
-            // Spawn portal directly in front for desktop debugging
+            document.getElementById('instructions').innerText = "Desktop Mode: Click & drag to look. Click portal to enter!";
             portalGroup.position.set(0, 0, -1.5);
             portalGroup.visible = true;
             portalPlaced = true;
@@ -168,15 +188,13 @@
 
         function createPortalStructure() {
             portalGroup = new THREE.Group();
-            portalGroup.visible = false; // Hidden until placed or spawned
+            portalGroup.visible = false;
 
-            // Whimsical Torus Frame
             const frameGeo = new THREE.TorusGeometry(0.7, 0.06, 16, 100);
             const frameMat = new THREE.MeshStandardMaterial({ color: 0x9900cc, metalness: 0.8, roughness: 0.2 });
             const frame = new THREE.Mesh(frameGeo, frameMat);
             portalGroup.add(frame);
 
-            // Clickable Gateway Plane
             const portalInnerGeo = new THREE.CircleGeometry(0.66, 32);
             const portalInnerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
             const portalPlane = new THREE.Mesh(portalInnerGeo, portalInnerMat);
@@ -188,22 +206,19 @@
 
         function buildWonderlandEnvironment() {
             wonderlandGroup = new THREE.Group();
-            wonderlandGroup.visible = false; // Hidden until entering the portal
+            wonderlandGroup.visible = false;
 
-            // Sky Dome
             const skyGeo = new THREE.SphereGeometry(30, 32, 32);
             const skyMat = new THREE.MeshBasicMaterial({ color: 0x1a0033, side: THREE.BackSide });
             const sky = new THREE.Mesh(skyGeo, skyMat);
             wonderlandGroup.add(sky);
 
-            // 1. The Mad Tea Party Table (Relative position: 5 meters ahead)
             const tableGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
             const tableMat = new THREE.MeshStandardMaterial({ color: 0x996633 });
             const table = new THREE.Mesh(tableGeo, tableMat);
             table.position.set(0, 0.5, -5); 
             wonderlandGroup.add(table);
 
-            // Teacups on table
             const cupGeo = new THREE.CylinderGeometry(0.15, 0.1, 0.3, 16);
             const cupMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
             for (let i = 0; i < 4; i++) {
@@ -213,7 +228,6 @@
                 wonderlandGroup.add(cup);
             }
 
-            // 2. Wonderland Mushrooms (Scattered around relative space)
             const capGeo = new THREE.ConeGeometry(0.6, 0.3, 16);
             const stemGeo = new THREE.CylinderGeometry(0.15, 0.2, 0.8, 16);
             const capMat = new THREE.MeshStandardMaterial({ color: 0xff0066, roughness: 0.3 });
@@ -244,7 +258,7 @@
                 portalGroup.visible = true;
                 portalPlaced = true;
                 reticle.visible = false;
-                document.getElementById('instructions').innerText = "Portal placed! Walk up to it or tap the cyan center to enter Wonderland.";
+                document.getElementById('instructions').innerText = "Portal placed! Tap the cyan center to enter Wonderland.";
             }
         }
 
@@ -263,14 +277,14 @@
 
         function enterWonderland() {
             isInsideWonderland = true;
-            portalGroup.visible = false; // Hide portal frame
-            wonderlandGroup.visible = true; // Reveal full Wonderland world
+            portalGroup.visible = false;
+            wonderlandGroup.visible = true;
             
             if (controls) {
-                controls.target.set(0, 0, -4); // Shift focus to tea party
+                controls.target.set(0, 0, -4);
             }
 
-            document.getElementById('instructions').innerText = "Welcome to Wonderland! Physically walk around to explore the tea party and mushrooms.";
+            document.getElementById('instructions').innerText = "Welcome to Wonderland! Walk around to explore.";
             document.getElementById('site-hud').style.display = "block";
         }
 
