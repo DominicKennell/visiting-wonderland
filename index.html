@@ -3,59 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Hatter's Tea Party - Outdoor AR</title>
-    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-    <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/three.js/build/ar-threex-location-only.js"></script>
-    <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    <title>Vanilla WebXR Portal</title>
     <style>
-        #ui {
-            position: fixed;
-            bottom: 30px;
+        body { margin: 0; overflow: hidden; background: black; font-family: sans-serif; }
+        #ar-button {
+            position: absolute;
+            bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.85);
-            color: #00ffff;
-            padding: 14px 24px;
-            border-radius: 10px;
-            font-size: 15px;
-            border: 2px solid #9900cc;
-            text-align: center;
+            padding: 12px 24px;
+            font-size: 18px;
+            background: #4a0e4e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
             z-index: 999;
-            font-family: monospace;
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
         }
     </style>
 </head>
-<body style="margin: 0; overflow: hidden;">
+<body>
 
-    <div id="ui">Connecting to GPS... Walk toward the target spot!</div>
-
-    <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;">
-        <a-camera gps-new-camera="gpsMinDistance: 1"></a-camera>
-        
-        <!-- Locked directly to your specified Hatter's Tea Party coordinates -->
-        <a-entity id="hatters-table" gps-new-entity-place="latitude: 51.8187; longitude: -1.2874;" scale="3 3 3">
-            <!-- The Tea Table -->
-            <a-cylinder radius="1.5" height="0.2" color="#8b4513" position="0 0 0"></a-cylinder>
-            <!-- Teacups -->
-            <a-cylinder radius="0.3" height="0.5" color="#ffffff" position="-0.8 0.3 -0.8"></a-cylinder>
-            <a-cylinder radius="0.3" height="0.5" color="#ffffff" position="0.8 0.3 0.8"></a-cylinder>
-            <!-- Mad Hatter's Top Hat Centerpiece -->
-            <a-cylinder radius="0.4" height="0.6" color="#111111" position="0 0.5 0"></a-cylinder>
-            <a-box width="1.0" height="0.05" depth="1.0" color="#111111" position="0 0.22 0"></a-box>
-        </a-entity>
-    </a-scene>
+    <button id="ar-button">Start Wonderland AR</button>
 
     <script>
-        const entity = document.getElementById('hatters-table');
-        entity.addEventListener('loaded', () => {
-            setInterval(() => {
-                const dist = entity.getAttribute('distance');
-                if (dist !== null) {
-                    document.getElementById('ui').innerHTML = `Hatter's Tea Party Ahead!<br>Distance: <b>${Math.round(dist)} meters</b>`;
+        let xrSession = null;
+        let xrViewerSpace = null;
+        let xrHitTestSource = null;
+        let gl = null;
+        let canvas = null;
+
+        const button = document.getElementById('ar-button');
+
+        // Check if WebXR with AR is supported by the mobile browser
+        if (navigator.xr) {
+            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                if (supported) {
+                    button.addEventListener('click', toggleAR);
+                } else {
+                    button.textContent = 'AR Not Supported on this Device';
+                    button.disabled = true;
                 }
-            }, 1000);
-        });
+            });
+        } else {
+            button.textContent = 'WebXR Not Available';
+            button.disabled = true;
+        }
+
+        async function toggleAR() {
+            if (xrSession) {
+                await xrSession.end();
+                return;
+            }
+
+            try {
+                // Request an immersive-ar session with hit-test capability
+                xrSession = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['hit-test', 'local-floor']
+                });
+
+                button.style.display = 'none';
+                
+                // Create native WebGL context bound to the XR session
+                canvas = document.createElement('canvas');
+                document.body.appendChild(canvas);
+                gl = canvas.getContext('webgl', { xrCompatible: true });
+
+                await xrSession.updateRenderState({
+                    baseLayer: new XRWebGLLayer(xrSession, gl)
+                });
+
+                xrViewerSpace = await xrSession.requestReferenceSpace('viewer');
+                let localSpace = await xrSession.requestReferenceSpace('local-floor');
+
+                // Set up hit source for placing objects on real-world surfaces
+                xrHitTestSource = await xrSession.requestHitTestSource({ space: xrViewerSpace });
+
+                xrSession.addEventListener('end', () => {
+                    xrSession = null;
+                    button.style.display = 'block';
+                    if (canvas) canvas.remove();
+                });
+
+                xrSession.requestAnimationFrame(onXRFrame);
+
+            } catch (err) {
+                console.error('Failed to start AR session:', err);
+                button.style.display = 'block';
+            }
+        }
+
+        function onXRFrame(time, frame) {
+            let session = frame.session;
+            session.requestAnimationFrame(onXRFrame);
+
+            let pose = frame.getViewerPose(xrViewerSpace);
+            if (pose) {
+                let glLayer = session.renderState.baseLayer;
+                
+                gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+                gl.clearColor(0, 0, 0, 0); // Transparent background to show camera feed
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                // Native WebXR render loop goes here.
+                // Without Three.js, you handle raw WebGL draw calls, shader programs, 
+                // and matrices directly for your Wonderland portal geometry.
+            }
+        }
     </script>
 </body>
 </html>
