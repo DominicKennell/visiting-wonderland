@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - AR Fixed</title>
+    <title>Alice in Wonderland - AR Portal</title>
     <style>
         body {
             margin: 0;
@@ -96,7 +96,6 @@
 
         function init() {
             scene = new THREE.Scene();
-            // Only set background color for desktop, keep transparent for AR camera feed
             scene.background = new THREE.Color(0x050505);
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
@@ -119,7 +118,6 @@
             buildWonderlandEnvironment();
             createPortalStructure();
 
-            // Check WebXR AR compatibility
             if ('xr' in navigator) {
                 navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
                     if (supported) {
@@ -129,7 +127,6 @@
                             domOverlay: { root: document.getElementById('ui-overlay') }
                         });
                         
-                        // Style the AR Button nicely and place it in our container
                         arButton.style.position = 'static';
                         arButton.style.backgroundColor = '#9900cc';
                         arButton.style.color = '#ffffff';
@@ -143,12 +140,14 @@
                         document.getElementById('ar-button-container').appendChild(arButton);
                         document.getElementById('instructions').innerText = "Tap 'START AR' and scan your room floor.";
 
-                        // Clear scene background when AR session starts so camera passthrough works
+                        // Force clear color alpha to 0 so camera feed shows through in AR mode
                         renderer.xr.addEventListener('sessionstart', () => {
                             scene.background = null;
+                            renderer.setClearColor(0x000000, 0);
                         });
                         renderer.xr.addEventListener('sessionend', () => {
                             scene.background = new THREE.Color(0x050505);
+                            renderer.setClearColor(0x000000, 1);
                         });
 
                     } else {
@@ -298,39 +297,39 @@
             renderer.setAnimationLoop(render);
         }
 
-        function render(timestamp, frame) {
-            if (frame) {
-                const referenceSpace = renderer.xr.getReferenceSpace();
-                const session = renderer.xr.getSession();
+    function render(timestamp, frame) {
+        if (frame) {
+            const referenceSpace = renderer.xr.getReferenceSpace();
+            const session = renderer.xr.getSession();
 
-                if (!hitTestSourceRequested) {
-                    session.requestReferenceSpace('viewer').then((viewerSpace) => {
-                        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-                            hitTestSource = source;
-                        });
+            if (!hitTestSourceRequested) {
+                session.requestReferenceSpace('viewer').then((viewerSpace) => {
+                    session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+                        hitTestSource = source;
                     });
-                    session.addEventListener('end', () => {
-                        hitTestSourceRequested = false;
-                        hitTestSource = null;
-                    });
-                    hitTestSourceRequested = true;
-                }
-
-                if (hitTestSource && !portalPlaced) {
-                    const hitTestResults = frame.getHitTestSourceResults(hitTestSource);
-                    if (hitTestResults.length > 0) {
-                        const hit = hitTestResults[0];
-                        reticle.visible = true;
-                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                    } else {
-                        reticle.visible = false;
-                    }
-                }
+                });
+                session.addEventListener('end', () => {
+                    hitTestSourceRequested = false;
+                    hitTestSource = null;
+                });
+                hitTestSourceRequested = true;
             }
 
-            if (controls) controls.update();
-            renderer.render(scene, camera);
+            if (hitTestSource && !portalPlaced) {
+                const hitTestResults = frame.getHitTestSourceResults(hitTestSource);
+                if (hitTestResults.length > 0) {
+                    const hit = hitTestResults[0];
+                    reticle.visible = true;
+                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                } else {
+                    reticle.visible = false;
+                }
+            }
         }
+
+        if (controls) controls.update();
+        renderer.render(scene, camera);
+    }
     </script>
 </body>
 </html>
