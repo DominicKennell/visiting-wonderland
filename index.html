@@ -3,197 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - Stable Room AR</title>
+    <title>Alice in Wonderland - GPS Outdoor AR</title>
+    <!-- A-Frame -->
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <!-- AR.js Location-Based build -->
+    <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/three.js/build/ar-threex-location-only.js"></script>
+    <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <style>
         body {
             margin: 0;
-            padding: 0;
             overflow: hidden;
-            background-color: #000;
             font-family: 'Courier New', Courier, monospace;
         }
-        #ar-button {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #9900cc;
-            color: #ffffff;
-            border: 2px solid #00ffff;
-            padding: 16px 32px;
-            border-radius: 12px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            text-transform: uppercase;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
-            z-index: 999;
-        }
-        #instructions {
-            position: absolute;
-            top: 25px;
+        #info-overlay {
+            position: fixed;
+            top: 20px;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.85);
             color: #00ffff;
             padding: 12px 24px;
             border-radius: 8px;
-            font-size: 15px;
+            font-size: 14px;
             border: 1px solid #9900cc;
             text-align: center;
             z-index: 999;
             pointer-events: none;
-            width: 80%;
+            width: 85%;
             max-width: 400px;
         }
     </style>
 </head>
-<body>
+<body style="margin: 0; overflow: hidden;">
 
-    <div id="instructions">1. Tap 'START AR'<br>2. Scan your floor slowly<br>3. Tap screen to place the Tea Party</div>
+    <div id="info-overlay">
+        <b>Wonderland GPS Portal</b><br>Step outside, allow GPS permissions, and look around for the Mad Tea Party!
+    </div>
 
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+    <a-scene 
+        vr-mode-ui="enabled: false" 
+        embedded 
+        arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;">
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { ARButton } from 'three/addons/webxr/ARButton.js';
+        <!-- GPS Camera tracks phone movement & orientation outdoor -->
+        <a-camera gps-new-camera="gpsMinDistance: 5"></a-camera>
 
-        let camera, scene, renderer;
-        let wonderlandGroup;
-        let hitTestSource = null;
-        let hitTestSourceRequested = false;
-        let placedOnFloor = false;
+        <!-- 
+          The Mad Tea Party anchored to a specific GPS coordinate. 
+          (REPLACE latitude and longitude with your target outdoor spot!)
+        -->
+        <a-entity gps-new-entity-place="latitude: 51.5074; longitude: -0.1278" scale="2 2 2">
+            <!-- Tea Table -->
+            <a-cylinder radius="1.2" height="0.15" color="#8b4513" position="0 0 0"></a-cylinder>
+            <!-- Teacups -->
+            <a-cylinder radius="0.2" height="0.4" color="#ffffff" position="-0.5 0.3 -0.5"></a-cylinder>
+            <a-cylinder radius="0.2" height="0.4" color="#ffffff" position="0.5 0.3 0.5"></a-cylinder>
+            <!-- Glowing Mushroom Centerpiece -->
+            <a-cone radius-bottom="0.5" height="0.6" color="#ff0066" position="0 0.4 0"></a-cone>
+        </a-entity>
 
-        // Visual targeting ring for the floor
-        const reticle = new THREE.Mesh(
-            new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
-            new THREE.MeshBasicMaterial({ color: 0x00ffff })
-        );
-        reticle.matrixAutoUpdate = false;
-        reticle.visible = false;
+    </a-scene>
 
-        init();
-
-        function init() {
-            const container = document.createElement('div');
-            document.body.appendChild(container);
-
-            scene = new THREE.Scene();
-
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            container.appendChild(renderer.domElement);
-
-            // Lighting for the tea party
-            const light = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
-            light.position.set(0.5, 1, 0.25);
-            scene.add(light);
-
-            scene.add(reticle);
-            buildWonderlandScene();
-
-            // Setup WebXR AR button with required hit-test feature
-            const arButton = ARButton.createButton(renderer, { 
-                requiredFeatures: ['hit-test'] 
-            });
-            arButton.id = 'ar-button';
-            document.body.appendChild(arButton);
-
-            // Handle screen tap to place the model on the floor
-            const controller = renderer.xr.getController(0);
-            controller.addEventListener('select', onSelect);
-            scene.add(controller);
-
-            window.addEventListener('resize', onWindowResize);
-
-            renderer.setAnimationLoop(render);
-        }
-
-        function buildWonderlandScene() {
-            wonderlandGroup = new THREE.Group();
-            wonderlandGroup.visible = false; // Hidden until placed on floor
-
-            // Mad Tea Party Table
-            const tableGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.05, 32);
-            const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.6 });
-            const table = new THREE.Mesh(tableGeo, tableMat);
-            table.position.y = 0.25;
-            wonderlandGroup.add(table);
-
-            // Teacups
-            const cupGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.12, 16);
-            const cupMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-            for (let i = 0; i < 3; i++) {
-                const cup = new THREE.Mesh(cupGeo, cupMat);
-                const angle = (i / 3) * Math.PI * 2;
-                cup.position.set(Math.cos(angle) * 0.25, 0.34, Math.sin(angle) * 0.25);
-                wonderlandGroup.add(cup);
-            }
-
-            scene.add(wonderlandGroup);
-        }
-
-        function onSelect() {
-            if (reticle.visible && !placedOnFloor) {
-                wonderlandGroup.position.copy(reticle.position);
-                wonderlandGroup.quaternion.copy(reticle.quaternion);
-                wonderlandGroup.visible = true;
-                placedOnFloor = true;
-                reticle.visible = false;
-                document.getElementById('instructions').innerText = "Placed! Now you can physically walk around the table.";
-            }
-        }
-
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function render(timestamp, frame) {
-            if (frame) {
-                const referenceSpace = renderer.xr.getReferenceSpace();
-                const session = renderer.xr.getSession();
-
-                if (!hitTestSourceRequested) {
-                    session.requestReferenceSpace('viewer').then((referenceSpace) => {
-                        session.requestHitTestSource({ space: referenceSpace }).then((source) => {
-                            hitTestSource = source;
-                        });
-                    });
-                    session.end.then(() => {
-                        hitTestSourceRequested = false;
-                        hitTestSource = null;
-                        placedOnFloor = false;
-                    });
-                    hitTestSourceRequested = true;
-                }
-
-                if (hitTestSource && !placedOnFloor) {
-                    const hitTestResults = frame.getHitTestSourceResults(hitTestSource);
-                    if (hitTestResults.length > 0) {
-                        const hit = hitTestResults[0];
-                        reticle.visible = true;
-                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                    } else {
-                        reticle.visible = false;
-                    }
-                }
-            }
-
-            renderer.render(scene, camera);
-        }
-    </script>
 </body>
 </html>
