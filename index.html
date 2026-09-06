@@ -2,61 +2,230 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alice in Wonderland - Room AR</title>
-    <!-- Import the Google Model-Viewer component -->
-    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Alice in Wonderland - Immersive Portal</title>
     <style>
         body {
             margin: 0;
-            background: #050505;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
             font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
             display: flex;
             flex-direction: column;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            box-sizing: border-box;
+            padding: 25px;
+            z-index: 10;
+        }
+        #instructions {
+            background: rgba(0, 0, 0, 0.85);
             color: #00ffff;
-        }
-        model-viewer {
-            width: 100%;
-            height: 80vh;
-            background-color: #110022;
-        }
-        .ar-button {
-            background: #9900cc;
-            color: white;
-            border: 2px solid #00ffff;
-            padding: 12px 24px;
+            padding: 14px 24px;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 15px;
+            text-align: center;
+            border: 1px solid #9900cc;
+            text-shadow: 0 0 5px #00ffff;
+            pointer-events: auto;
             cursor: pointer;
-            margin-top: 10px;
-            text-transform: uppercase;
+            box-shadow: 0 0 15px rgba(153, 0, 204, 0.5);
+        }
+        #movement-hint {
+            display: none;
+            background: rgba(153, 0, 204, 0.85);
+            color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 13px;
             letter-spacing: 1px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
 
-    <!-- Model-viewer handles native Android Scene Viewer & WebXR seamlessly -->
-    <model-viewer 
-        src="your-wonderland-portal-model.glb" 
-        ios-src="your-wonderland-portal-model.usdz"
-        ar 
-        ar-modes="scene-viewer webxr quick-look" 
-        camera-controls 
-        auto-rotate
-        shadow-intensity="1">
-        
-        <button slot="ar-button" class="ar-button">
-            Place Portal in Your Room
-        </button>
-    </model-viewer>
-
-    <div style="font-size: 13px; margin-top: 10px; color: #888;">
-        Tap "Place Portal" to spawn it on your physical floor and walk around it.
+    <div id="ui-overlay">
+        <div id="instructions">BAM! Scan complete.<br><br><b>Tap the glowing portal</b> to enter Wonderland.</div>
+        <div id="movement-hint">You're in the forest! Swipe to look, use pinch/scroll to walk closer to the Tea Party.</div>
     </div>
 
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let camera, scene, renderer, controls;
+        let portalGroup, wonderlandGroup;
+        let isInside = false;
+        
+        const raycaster = new THREE.Raycaster();
+        const touchPos = new THREE.Vector2();
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x05021a);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0, 3.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0x00ffff, 1.2);
+            directionalLight.position.set(2, 5, 3);
+            scene.add(directionalLight);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = false; // Locked until inside portal
+
+            buildWonderlandEnvironment();
+            createPortal();
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onScreenClick);
+        }
+
+        function createPortal() {
+            portalGroup = new THREE.Group();
+
+            // Portal Ring Frame
+            const frameGeo = new THREE.TorusGeometry(1.2, 0.1, 16, 100);
+            const frameMat = new THREE.MeshStandardMaterial({ color: 0x9900cc, metalness: 0.8, roughness: 0.2 });
+            const frame = new THREE.Mesh(frameGeo, frameMat);
+            portalGroup.add(frame);
+
+            // Portal Gateway Surface
+            const portalInnerGeo = new THREE.CircleGeometry(1.15, 32);
+            const portalInnerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
+            const portalPlane = new THREE.Mesh(portalInnerGeo, portalInnerMat);
+            portalPlane.name = "PortalGateway";
+            portalGroup.add(portalPlane);
+
+            portalGroup.position.set(0, 0, -2.5);
+            scene.add(portalGroup);
+        }
+
+        function buildWonderlandEnvironment() {
+            wonderlandGroup = new THREE.Group();
+            wonderlandGroup.visible = false;
+
+            // Deep Forest Sky Dome
+            const skyGeo = new THREE.SphereGeometry(50, 32, 32);
+            const skyMat = new THREE.MeshBasicMaterial({ color: 0x0a001f, side: THREE.BackSide });
+            const sky = new THREE.Mesh(skyGeo, skyMat);
+            wonderlandGroup.add(sky);
+
+            // Mad Tea Party Table
+            const tableGeo = new THREE.CylinderGeometry(1.8, 1.8, 0.15, 32);
+            const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.7 });
+            const table = new THREE.Mesh(tableGeo, tableMat);
+            table.position.set(0, 0.4, -5);
+            wonderlandGroup.add(table);
+
+            // Teacups on the table
+            const cupGeo = new THREE.CylinderGeometry(0.2, 0.15, 0.4, 16);
+            const cupMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+            for (let i = 0; i < 5; i++) {
+                const cup = new THREE.Mesh(cupGeo, cupMat);
+                const angle = (i / 5) * Math.PI * 2;
+                cup.position.set(Math.cos(angle) * 0.9, 0.7, -5 + Math.sin(angle) * 0.9);
+                wonderlandGroup.add(cup);
+            }
+
+            // Giant Glowing Mushrooms surrounding the user
+            const capGeo = new THREE.ConeGeometry(1.0, 0.5, 16);
+            const stemGeo = new THREE.CylinderGeometry(0.25, 0.3, 1.2, 16);
+            const capMat = new THREE.MeshStandardMaterial({ color: 0xff0066, roughness: 0.3 });
+            const stemMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+
+            const mushroomPositions = [
+                {x: -3.5, z: -4}, {x: 3.5, z: -5}, 
+                {x: -2.0, z: -7}, {x: 4.0, z: -7.5}, {x: 0, z: -9}
+            ];
+
+            mushroomPositions.forEach(pos => {
+                const mush = new THREE.Group();
+                const cap = new THREE.Mesh(capGeo, capMat);
+                cap.position.y = 1.1;
+                const stem = new THREE.Mesh(stemGeo, stemMat);
+                stem.position.y = 0.6;
+                mush.add(cap);
+                mush.add(stem);
+                mush.position.set(pos.x, 0, pos.z);
+                wonderlandGroup.add(mush);
+            });
+
+            scene.add(wonderlandGroup);
+        }
+
+        function onScreenClick(event) {
+            if (!isInside) {
+                touchPos.x = (event.clientX / window.innerWidth) * 2 - 1;
+                touchPos.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(touchPos, camera);
+                const intersects = raycaster.intersectObjects(portalGroup.children);
+                
+                if (intersects.length > 0 && intersects[0].object.name === "PortalGateway") {
+                    enterWonderland();
+                }
+            }
+        }
+
+        function enterWonderland() {
+            isInside = true;
+            portalGroup.visible = false;
+            wonderlandGroup.visible = true;
+            
+            // BAM: Instantly inside the forest environment
+            camera.position.set(0, 1.6, 0);
+            controls.target.set(0, 1.6, -5);
+            controls.enableZoom = true; // Allow walking/zooming around the table
+
+            document.getElementById('instructions').style.display = 'none';
+            document.getElementById('movement-hint').style.display = 'block';
+        }
+
+    function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
 </body>
 </html>
