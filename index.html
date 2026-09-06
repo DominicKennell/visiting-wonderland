@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - Magic Window Portal</title>
+    <title>Alice in Wonderland - Magic Window</title>
     <style>
         body {
             margin: 0;
@@ -37,7 +37,6 @@
             border: 1px solid #9900cc;
             text-shadow: 0 0 5px #00ffff;
             pointer-events: auto;
-            cursor: pointer;
         }
         #site-hud {
             display: none;
@@ -53,7 +52,7 @@
 <body>
 
     <div id="ui-overlay">
-        <div id="instructions">Tap here to enable motion & peer through the Wonderland Portal</div>
+        <div id="instructions">Drag your finger to look around.<br>Tap the glowing portal to enter Wonderland!</div>
         <div id="site-hud">Site: The Mad Tea Party</div>
     </div>
 
@@ -68,7 +67,6 @@
 
     <script type="module">
         import * as THREE from 'three';
-        import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer, controls;
@@ -101,27 +99,10 @@
             directionalLight.position.set(1, 4, 2);
             scene.add(directionalLight);
 
-            // Setup controls (Gyroscope for mobile, Orbit for desktop fallback)
-            if (window.DeviceOrientationEvent) {
-                controls = new DeviceOrientationControls(camera);
-            } else {
-                controls = new OrbitControls(camera, renderer.domElement);
-                controls.enableDamping = true;
-            }
-
-            // Enable motion permission request for iOS/Android browsers
-            document.getElementById('instructions').addEventListener('click', () => {
-                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission().then(response => {
-                        if (response === 'granted') {
-                            controls = new DeviceOrientationControls(camera);
-                        }
-                    }).catch(console.error);
-                }
-                if (!isInsideWonderland) {
-                    document.getElementById('instructions').style.display = 'none';
-                }
-            });
+            // OrbitControls handles smooth touch-dragging and mouse dragging natively
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.enableZoom = false; // Keep distance fixed for portal view
 
             buildWonderlandEnvironment();
             createPortal();
@@ -200,12 +181,12 @@
         }
 
         function onScreenClick(event) {
+            touchPos.x = (event.clientX / window.innerWidth) * 2 - 1;
+            touchPos.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(touchPos, camera);
+
             if (!isInsideWonderland) {
-                touchPos.x = (event.clientX / window.innerWidth) * 2 - 1;
-                touchPos.y = -(event.clientY / window.innerHeight) * 2 + 1;
-                raycaster.setFromCamera(touchPos, camera);
                 const intersects = raycaster.intersectObjects(portalGroup.children);
-                
                 if (intersects.length > 0 && intersects[0].object.name === "PortalGateway") {
                     enterWonderland();
                 }
@@ -217,6 +198,8 @@
             portalGroup.visible = false;
             wonderlandGroup.visible = true;
             camera.position.set(0, 1.6, 0); // Step inside the world
+            controls.target.set(0, 1.6, -4); // Look toward the tea party
+            controls.enableZoom = true; // Allow zooming inside Wonderland
             document.getElementById('instructions').style.display = 'none';
             document.getElementById('site-hud').style.display = "block";
         }
