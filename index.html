@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - Immersive Portal</title>
+    <title>Alice in Wonderland - Stable Room AR</title>
     <style>
         body {
             margin: 0;
@@ -11,54 +11,46 @@
             overflow: hidden;
             background-color: #000;
             font-family: 'Courier New', Courier, monospace;
-            user-select: none;
         }
-        #ui-overlay {
+        #ar-button {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            align-items: center;
-            box-sizing: border-box;
-            padding: 25px;
-            z-index: 10;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #9900cc;
+            color: #ffffff;
+            border: 2px solid #00ffff;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            z-index: 999;
         }
         #instructions {
+            position: absolute;
+            top: 25px;
+            left: 50%;
+            transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.85);
             color: #00ffff;
-            padding: 14px 24px;
+            padding: 12px 24px;
             border-radius: 8px;
             font-size: 15px;
-            text-align: center;
             border: 1px solid #9900cc;
-            text-shadow: 0 0 5px #00ffff;
-            pointer-events: auto;
-            cursor: pointer;
-            box-shadow: 0 0 15px rgba(153, 0, 204, 0.5);
-        }
-        #movement-hint {
-            display: none;
-            background: rgba(153, 0, 204, 0.85);
-            color: #ffffff;
-            padding: 10px 20px;
-            border-radius: 6px;
-            font-size: 13px;
-            letter-spacing: 1px;
             text-align: center;
+            z-index: 999;
+            pointer-events: none;
+            width: 80%;
+            max-width: 400px;
         }
     </style>
 </head>
 <body>
 
-    <div id="ui-overlay">
-        <div id="instructions">BAM! Scan complete.<br><br><b>Tap the glowing portal</b> to enter Wonderland.</div>
-        <div id="movement-hint">You're in the forest! Swipe to look, use pinch/scroll to walk closer to the Tea Party.</div>
-    </div>
+    <div id="instructions">1. Tap 'START AR'<br>2. Scan your floor slowly<br>3. Tap screen to place the Tea Party</div>
 
     <script type="importmap">
         {
@@ -71,159 +63,135 @@
 
     <script type="module">
         import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { ARButton } from 'three/addons/webxr/ARButton.js';
 
-        let camera, scene, renderer, controls;
-        let portalGroup, wonderlandGroup;
-        let isInside = false;
-        
-        const raycaster = new THREE.Raycaster();
-        const touchPos = new THREE.Vector2();
+        let camera, scene, renderer;
+        let wonderlandGroup;
+        let hitTestSource = null;
+        let hitTestSourceRequested = false;
+        let placedOnFloor = false;
+
+        // Visual targeting ring for the floor
+        const reticle = new THREE.Mesh(
+            new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: 0x00ffff })
+        );
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
 
         init();
-        animate();
 
         function init() {
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x05021a);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 0, 3.5);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
 
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
-            scene.add(ambientLight);
+            // Lighting for the tea party
+            const light = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
+            light.position.set(0.5, 1, 0.25);
+            scene.add(light);
 
-            const directionalLight = new THREE.DirectionalLight(0x00ffff, 1.2);
-            directionalLight.position.set(2, 5, 3);
-            scene.add(directionalLight);
+            scene.add(reticle);
+            buildWonderlandScene();
 
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.enableZoom = false; // Locked until inside portal
+            // Setup WebXR AR button with required hit-test feature
+            const arButton = ARButton.createButton(renderer, { 
+                requiredFeatures: ['hit-test'] 
+            });
+            arButton.id = 'ar-button';
+            document.body.appendChild(arButton);
 
-            buildWonderlandEnvironment();
-            createPortal();
+            // Handle screen tap to place the model on the floor
+            const controller = renderer.xr.getController(0);
+            controller.addEventListener('select', onSelect);
+            scene.add(controller);
 
             window.addEventListener('resize', onWindowResize);
-            window.addEventListener('pointerdown', onScreenClick);
+
+            renderer.setAnimationLoop(render);
         }
 
-        function createPortal() {
-            portalGroup = new THREE.Group();
-
-            // Portal Ring Frame
-            const frameGeo = new THREE.TorusGeometry(1.2, 0.1, 16, 100);
-            const frameMat = new THREE.MeshStandardMaterial({ color: 0x9900cc, metalness: 0.8, roughness: 0.2 });
-            const frame = new THREE.Mesh(frameGeo, frameMat);
-            portalGroup.add(frame);
-
-            // Portal Gateway Surface
-            const portalInnerGeo = new THREE.CircleGeometry(1.15, 32);
-            const portalInnerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
-            const portalPlane = new THREE.Mesh(portalInnerGeo, portalInnerMat);
-            portalPlane.name = "PortalGateway";
-            portalGroup.add(portalPlane);
-
-            portalGroup.position.set(0, 0, -2.5);
-            scene.add(portalGroup);
-        }
-
-        function buildWonderlandEnvironment() {
+        function buildWonderlandScene() {
             wonderlandGroup = new THREE.Group();
-            wonderlandGroup.visible = false;
-
-            // Deep Forest Sky Dome
-            const skyGeo = new THREE.SphereGeometry(50, 32, 32);
-            const skyMat = new THREE.MeshBasicMaterial({ color: 0x0a001f, side: THREE.BackSide });
-            const sky = new THREE.Mesh(skyGeo, skyMat);
-            wonderlandGroup.add(sky);
+            wonderlandGroup.visible = false; // Hidden until placed on floor
 
             // Mad Tea Party Table
-            const tableGeo = new THREE.CylinderGeometry(1.8, 1.8, 0.15, 32);
-            const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.7 });
+            const tableGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.05, 32);
+            const tableMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.6 });
             const table = new THREE.Mesh(tableGeo, tableMat);
-            table.position.set(0, 0.4, -5);
+            table.position.y = 0.25;
             wonderlandGroup.add(table);
 
-            // Teacups on the table
-            const cupGeo = new THREE.CylinderGeometry(0.2, 0.15, 0.4, 16);
-            const cupMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
-            for (let i = 0; i < 5; i++) {
+            // Teacups
+            const cupGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.12, 16);
+            const cupMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            for (let i = 0; i < 3; i++) {
                 const cup = new THREE.Mesh(cupGeo, cupMat);
-                const angle = (i / 5) * Math.PI * 2;
-                cup.position.set(Math.cos(angle) * 0.9, 0.7, -5 + Math.sin(angle) * 0.9);
+                const angle = (i / 3) * Math.PI * 2;
+                cup.position.set(Math.cos(angle) * 0.25, 0.34, Math.sin(angle) * 0.25);
                 wonderlandGroup.add(cup);
             }
-
-            // Giant Glowing Mushrooms surrounding the user
-            const capGeo = new THREE.ConeGeometry(1.0, 0.5, 16);
-            const stemGeo = new THREE.CylinderGeometry(0.25, 0.3, 1.2, 16);
-            const capMat = new THREE.MeshStandardMaterial({ color: 0xff0066, roughness: 0.3 });
-            const stemMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
-
-            const mushroomPositions = [
-                {x: -3.5, z: -4}, {x: 3.5, z: -5}, 
-                {x: -2.0, z: -7}, {x: 4.0, z: -7.5}, {x: 0, z: -9}
-            ];
-
-            mushroomPositions.forEach(pos => {
-                const mush = new THREE.Group();
-                const cap = new THREE.Mesh(capGeo, capMat);
-                cap.position.y = 1.1;
-                const stem = new THREE.Mesh(stemGeo, stemMat);
-                stem.position.y = 0.6;
-                mush.add(cap);
-                mush.add(stem);
-                mush.position.set(pos.x, 0, pos.z);
-                wonderlandGroup.add(mush);
-            });
 
             scene.add(wonderlandGroup);
         }
 
-        function onScreenClick(event) {
-            if (!isInside) {
-                touchPos.x = (event.clientX / window.innerWidth) * 2 - 1;
-                touchPos.y = -(event.clientY / window.innerHeight) * 2 + 1;
-                raycaster.setFromCamera(touchPos, camera);
-                const intersects = raycaster.intersectObjects(portalGroup.children);
-                
-                if (intersects.length > 0 && intersects[0].object.name === "PortalGateway") {
-                    enterWonderland();
-                }
+        function onSelect() {
+            if (reticle.visible && !placedOnFloor) {
+                wonderlandGroup.position.copy(reticle.position);
+                wonderlandGroup.quaternion.copy(reticle.quaternion);
+                wonderlandGroup.visible = true;
+                placedOnFloor = true;
+                reticle.visible = false;
+                document.getElementById('instructions').innerText = "Placed! Now you can physically walk around the table.";
             }
         }
 
-        function enterWonderland() {
-            isInside = true;
-            portalGroup.visible = false;
-            wonderlandGroup.visible = true;
-            
-            // BAM: Instantly inside the forest environment
-            camera.position.set(0, 1.6, 0);
-            controls.target.set(0, 1.6, -5);
-            controls.enableZoom = true; // Allow walking/zooming around the table
-
-            document.getElementById('instructions').style.display = 'none';
-            document.getElementById('movement-hint').style.display = 'block';
-        }
-
-    function onWindowResize() {
+        function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
+        function render(timestamp, frame) {
+            if (frame) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+
+                if (!hitTestSourceRequested) {
+                    session.requestReferenceSpace('viewer').then((referenceSpace) => {
+                        session.requestHitTestSource({ space: referenceSpace }).then((source) => {
+                            hitTestSource = source;
+                        });
+                    });
+                    session.end.then(() => {
+                        hitTestSourceRequested = false;
+                        hitTestSource = null;
+                        placedOnFloor = false;
+                    });
+                    hitTestSourceRequested = true;
+                }
+
+                if (hitTestSource && !placedOnFloor) {
+                    const hitTestResults = frame.getHitTestSourceResults(hitTestSource);
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        reticle.visible = true;
+                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticle.visible = false;
+                    }
+                }
+            }
+
             renderer.render(scene, camera);
         }
     </script>
