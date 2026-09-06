@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - AR Portal</title>
+    <title>Alice in Wonderland - Magic Window Portal</title>
     <style>
         body {
             margin: 0;
@@ -32,11 +32,12 @@
             color: #00ffff;
             padding: 12px 24px;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 15px;
             text-align: center;
             border: 1px solid #9900cc;
             text-shadow: 0 0 5px #00ffff;
             pointer-events: auto;
+            cursor: pointer;
         }
         #site-hud {
             display: none;
@@ -47,23 +48,14 @@
             font-size: 14px;
             letter-spacing: 1px;
         }
-        #ar-button-container {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 20;
-        }
     </style>
 </head>
 <body>
 
     <div id="ui-overlay">
-        <div id="instructions">Loading Wonderland Experience...</div>
-        <div id="site-hud">Site: The Mad Tea Party (5m Ahead)</div>
+        <div id="instructions">Tap here to enable motion & peer through the Wonderland Portal</div>
+        <div id="site-hud">Site: The Mad Tea Party</div>
     </div>
-    
-    <div id="ar-button-container"></div>
 
     <script type="importmap">
         {
@@ -76,18 +68,13 @@
 
     <script type="module">
         import * as THREE from 'three';
-        import { ARButton } from 'three/addons/webxr/ARButton.js';
+        import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer, controls;
-        let controller, reticle;
-        let hitTestSource = null;
-        let hitTestSourceRequested = false;
-        
-        let portalPlaced = false;
+        let portalGroup, wonderlandGroup;
         let isInsideWonderland = false;
         
-        let portalGroup, wonderlandGroup;
         const raycaster = new THREE.Raycaster();
         const touchPos = new THREE.Vector2();
 
@@ -98,13 +85,12 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x050505);
 
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
-            camera.position.set(0, 1.6, 3);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0, 3);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
             document.body.appendChild(renderer.domElement);
 
             // Lighting
@@ -115,91 +101,52 @@
             directionalLight.position.set(1, 4, 2);
             scene.add(directionalLight);
 
-            buildWonderlandEnvironment();
-            createPortalStructure();
-
-            if ('xr' in navigator) {
-                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-                    if (supported) {
-                        const arButton = ARButton.createButton(renderer, { 
-                            requiredFeatures: ['hit-test'],
-                            optionalFeatures: ['dom-overlay'],
-                            domOverlay: { root: document.getElementById('ui-overlay') }
-                        });
-                        
-                        arButton.style.position = 'static';
-                        arButton.style.backgroundColor = '#9900cc';
-                        arButton.style.color = '#ffffff';
-                        arButton.style.border = '1px solid #00ffff';
-                        arButton.style.borderRadius = '8px';
-                        arButton.style.padding = '12px 24px';
-                        arButton.style.fontFamily = 'Courier New';
-                        arButton.style.fontSize = '16px';
-                        arButton.style.cursor = 'pointer';
-                        
-                        document.getElementById('ar-button-container').appendChild(arButton);
-                        document.getElementById('instructions').innerText = "Tap 'START AR' and scan your room floor.";
-
-                        // Force clear color alpha to 0 so camera feed shows through in AR mode
-                        renderer.xr.addEventListener('sessionstart', () => {
-                            scene.background = null;
-                            renderer.setClearColor(0x000000, 0);
-                        });
-                        renderer.xr.addEventListener('sessionend', () => {
-                            scene.background = new THREE.Color(0x050505);
-                            renderer.setClearColor(0x000000, 1);
-                        });
-
-                    } else {
-                        setupDesktopMode();
-                    }
-                }).catch(() => {
-                    setupDesktopMode();
-                });
+            // Setup controls (Gyroscope for mobile, Orbit for desktop fallback)
+            if (window.DeviceOrientationEvent) {
+                controls = new DeviceOrientationControls(camera);
             } else {
-                setupDesktopMode();
+                controls = new OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
             }
 
-            controller = renderer.xr.getController(0);
-            controller.addEventListener('select', onARSelect);
-            scene.add(controller);
+            // Enable motion permission request for iOS/Android browsers
+            document.getElementById('instructions').addEventListener('click', () => {
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission().then(response => {
+                        if (response === 'granted') {
+                            controls = new DeviceOrientationControls(camera);
+                        }
+                    }).catch(console.error);
+                }
+                if (!isInsideWonderland) {
+                    document.getElementById('instructions').style.display = 'none';
+                }
+            });
 
-            reticle = new THREE.Mesh(
-                new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({ color: 0x00ffff })
-            );
-            reticle.matrixAutoUpdate = false;
-            reticle.visible = false;
-            scene.add(reticle);
+            buildWonderlandEnvironment();
+            createPortal();
 
             window.addEventListener('resize', onWindowResize);
             window.addEventListener('pointerdown', onScreenClick);
         }
 
-        function setupDesktopMode() {
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            document.getElementById('instructions').innerText = "Desktop Mode: Click & drag to look. Click portal to enter!";
-            portalGroup.position.set(0, 0, -1.5);
-            portalGroup.visible = true;
-            portalPlaced = true;
-        }
-
-        function createPortalStructure() {
+        function createPortal() {
             portalGroup = new THREE.Group();
-            portalGroup.visible = false;
 
-            const frameGeo = new THREE.TorusGeometry(0.7, 0.06, 16, 100);
+            // Portal Frame
+            const frameGeo = new THREE.TorusGeometry(1.2, 0.1, 16, 100);
             const frameMat = new THREE.MeshStandardMaterial({ color: 0x9900cc, metalness: 0.8, roughness: 0.2 });
             const frame = new THREE.Mesh(frameGeo, frameMat);
             portalGroup.add(frame);
 
-            const portalInnerGeo = new THREE.CircleGeometry(0.66, 32);
+            // Portal Gateway Plane
+            const portalInnerGeo = new THREE.CircleGeometry(1.15, 32);
             const portalInnerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
             const portalPlane = new THREE.Mesh(portalInnerGeo, portalInnerMat);
             portalPlane.name = "PortalGateway";
             portalGroup.add(portalPlane);
 
+            portalGroup.position.set(0, 0, -3);
             scene.add(portalGroup);
         }
 
@@ -207,40 +154,42 @@
             wonderlandGroup = new THREE.Group();
             wonderlandGroup.visible = false;
 
-            const skyGeo = new THREE.SphereGeometry(30, 32, 32);
+            // Sky Dome
+            const skyGeo = new THREE.SphereGeometry(40, 32, 32);
             const skyMat = new THREE.MeshBasicMaterial({ color: 0x1a0033, side: THREE.BackSide });
             const sky = new THREE.Mesh(skyGeo, skyMat);
             wonderlandGroup.add(sky);
 
-            const tableGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
+            // Mad Tea Party Table
+            const tableGeo = new THREE.CylinderGeometry(1.5, 1.5, 0.1, 32);
             const tableMat = new THREE.MeshStandardMaterial({ color: 0x996633 });
             const table = new THREE.Mesh(tableGeo, tableMat);
-            table.position.set(0, 0.5, -5); 
+            table.position.set(0, 0.5, -4);
             wonderlandGroup.add(table);
 
-            const cupGeo = new THREE.CylinderGeometry(0.15, 0.1, 0.3, 16);
+            // Teacups
+            const cupGeo = new THREE.CylinderGeometry(0.2, 0.15, 0.4, 16);
             const cupMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
             for (let i = 0; i < 4; i++) {
                 const cup = new THREE.Mesh(cupGeo, cupMat);
                 const angle = (i / 4) * Math.PI * 2;
-                cup.position.set(Math.cos(angle) * 0.6, 0.7, -5 + Math.sin(angle) * 0.6);
+                cup.position.set(Math.cos(angle) * 0.8, 0.75, -4 + Math.sin(angle) * 0.8);
                 wonderlandGroup.add(cup);
             }
 
-            const capGeo = new THREE.ConeGeometry(0.6, 0.3, 16);
-            const stemGeo = new THREE.CylinderGeometry(0.15, 0.2, 0.8, 16);
+            // Mushrooms
+            const capGeo = new THREE.ConeGeometry(0.8, 0.4, 16);
+            const stemGeo = new THREE.CylinderGeometry(0.2, 0.25, 1.0, 16);
             const capMat = new THREE.MeshStandardMaterial({ color: 0xff0066, roughness: 0.3 });
             const stemMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee });
 
-            const offsets = [
-                {x: -2, z: -4}, {x: 2.5, z: -6}, {x: -1.5, z: -7}, {x: 2, z: -3}
-            ];
+            const offsets = [{x: -3, z: -5}, {x: 3, z: -6}, {x: -2, z: -8}, {x: 3.5, z: -4}];
             offsets.forEach(pos => {
                 const mush = new THREE.Group();
                 const c = new THREE.Mesh(capGeo, capMat);
-                c.position.y = 0.5;
+                c.position.y = 0.7;
                 const s = new THREE.Mesh(stemGeo, stemMat);
-                s.position.y = 0.1;
+                s.position.y = 0.2;
                 mush.add(c);
                 mush.add(s);
                 mush.position.set(pos.x, 0, pos.z);
@@ -250,19 +199,8 @@
             scene.add(wonderlandGroup);
         }
 
-        function onARSelect() {
-            if (reticle.visible && !portalPlaced) {
-                portalGroup.position.setFromMatrixPosition(reticle.matrix);
-                portalGroup.quaternion.setFromRotationMatrix(reticle.matrix);
-                portalGroup.visible = true;
-                portalPlaced = true;
-                reticle.visible = false;
-                document.getElementById('instructions').innerText = "Portal placed! Tap the cyan center to enter Wonderland.";
-            }
-        }
-
         function onScreenClick(event) {
-            if (portalPlaced && !isInsideWonderland && !renderer.xr.isPresenting) {
+            if (!isInsideWonderland) {
                 touchPos.x = (event.clientX / window.innerWidth) * 2 - 1;
                 touchPos.y = -(event.clientY / window.innerHeight) * 2 + 1;
                 raycaster.setFromCamera(touchPos, camera);
@@ -278,12 +216,8 @@
             isInsideWonderland = true;
             portalGroup.visible = false;
             wonderlandGroup.visible = true;
-            
-            if (controls) {
-                controls.target.set(0, 0, -4);
-            }
-
-            document.getElementById('instructions').innerText = "Welcome to Wonderland! Walk around to explore.";
+            camera.position.set(0, 1.6, 0); // Step inside the world
+            document.getElementById('instructions').style.display = 'none';
             document.getElementById('site-hud').style.display = "block";
         }
 
@@ -294,42 +228,10 @@
         }
 
         function animate() {
-            renderer.setAnimationLoop(render);
+            requestAnimationFrame(animate);
+            if (controls) controls.update();
+            renderer.render(scene, camera);
         }
-
-    function render(timestamp, frame) {
-        if (frame) {
-            const referenceSpace = renderer.xr.getReferenceSpace();
-            const session = renderer.xr.getSession();
-
-            if (!hitTestSourceRequested) {
-                session.requestReferenceSpace('viewer').then((viewerSpace) => {
-                    session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-                        hitTestSource = source;
-                    });
-                });
-                session.addEventListener('end', () => {
-                    hitTestSourceRequested = false;
-                    hitTestSource = null;
-                });
-                hitTestSourceRequested = true;
-            }
-
-            if (hitTestSource && !portalPlaced) {
-                const hitTestResults = frame.getHitTestSourceResults(hitTestSource);
-                if (hitTestResults.length > 0) {
-                    const hit = hitTestResults[0];
-                    reticle.visible = true;
-                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                } else {
-                    reticle.visible = false;
-                }
-            }
-        }
-
-        if (controls) controls.update();
-        renderer.render(scene, camera);
-    }
     </script>
 </body>
 </html>
