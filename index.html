@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Alice in Wonderland - Outdoor Landmark AR</title>
+    <title>Hatter's Tea Party - Outdoor AR</title>
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/three.js/build/ar-threex-location-only.js"></script>
     <script type="text/javascript" src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
@@ -28,40 +28,33 @@
 </head>
 <body style="margin: 0; overflow: hidden;">
 
-    <div id="ui">Acquiring GPS Signal...</div>
+    <div id="ui">Connecting to GPS... Walk toward the target spot!</div>
 
     <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;">
         <a-camera gps-new-camera="gpsMinDistance: 1"></a-camera>
         
-        <!-- Giant scale so it's impossible to miss even if coordinates shift slightly -->
-        <a-entity id="wonderland-landmark" gps-new-entity-place="latitude: 0; longitude: 0;" scale="5 5 5">
-            <!-- Huge Mad Tea Party Table -->
-            <a-cylinder radius="2.0" height="0.3" color="#8b4513" position="0 0 0"></a-cylinder>
-            <!-- Giant Teacups -->
-            <a-cylinder radius="0.4" height="0.8" color="#ffffff" position="-1.0 0.5 -1.0"></a-cylinder>
-            <a-cylinder radius="0.4" height="0.8" color="#ffffff" position="1.0 0.5 1.0"></a-cylinder>
-            <!-- Glowing Cheshire/Mushroom Centerpiece -->
-            <a-cone radius-bottom="0.8" height="1.2" color="#ff0066" position="0 0.7 0"></a-cone>
+        <!-- Locked directly to your specified Hatter's Tea Party coordinates -->
+        <a-entity id="hatters-table" gps-new-entity-place="latitude: 51.8187; longitude: -1.2874;" scale="3 3 3">
+            <!-- The Tea Table -->
+            <a-cylinder radius="1.5" height="0.2" color="#8b4513" position="0 0 0"></a-cylinder>
+            <!-- Teacups -->
+            <a-cylinder radius="0.3" height="0.5" color="#ffffff" position="-0.8 0.3 -0.8"></a-cylinder>
+            <a-cylinder radius="0.3" height="0.5" color="#ffffff" position="0.8 0.3 0.8"></a-cylinder>
+            <!-- Mad Hatter's Top Hat Centerpiece -->
+            <a-cylinder radius="0.4" height="0.6" color="#111111" position="0 0.5 0"></a-cylinder>
+            <a-box width="1.0" height="0.05" depth="1.0" color="#111111" position="0 0.22 0"></a-box>
         </a-entity>
     </a-scene>
 
     <script>
-        window.addEventListener('load', () => {
-            const cameraEl = document.querySelector('[gps-new-camera]');
-            const landmark = document.getElementById('wonderland-landmark');
-            
-            cameraEl.addEventListener('gps-camera-update-position', e => {
-                const currentLat = e.detail.position.latitude;
-                const currentLon = e.detail.position.longitude;
-                
-                // Drop the giant landmark precisely 10 meters ahead of your current standing spot
-                const targetLat = currentLat + 0.00009; 
-                const targetLon = currentLon;
-
-                landmark.setAttribute('gps-new-entity-place', `latitude: ${targetLat}; longitude: ${targetLon};`);
-                
-                document.getElementById('ui.innerHTML, #ui').innerHTML = `Wonderland Active!<br>Look straight ahead for the giant table.`;
-            }, { once: true });
+        const entity = document.getElementById('hatters-table');
+        entity.addEventListener('loaded', () => {
+            setInterval(() => {
+                const dist = entity.getAttribute('distance');
+                if (dist !== null) {
+                    document.getElementById('ui').innerHTML = `Hatter's Tea Party Ahead!<br>Distance: <b>${Math.round(dist)} meters</b>`;
+                }
+            }, 1000);
         });
     </script>
 </body>
